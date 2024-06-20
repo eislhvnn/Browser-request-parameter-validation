@@ -1,0 +1,102 @@
+import requests
+import json
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class RequestOptimizer:
+    def __init__(self, url, tolerance=100, **kwargs):
+        """
+        初始化 RequestOptimizer 对象
+        :param url: 请求的 URL
+        :param tolerance: 允许的误差区间
+        :param kwargs: 其他字典参数
+        """
+        self.url = url
+        self.tolerance = tolerance
+        self.dictionaries = kwargs
+        self.initial_data_length = self.fetch_data(**self.dictionaries)
+
+    def fetch_data(self, **kwargs):
+        """
+        发送请求并获取响应数据量
+        :param kwargs: 请求的参数字典
+        :return: 响应内容的长度
+        """
+        try:
+            response = requests.get(self.url, **kwargs)
+            response.raise_for_status()
+            return len(response.content)
+        except requests.RequestException as e:
+            logging.error(f"请求失败: {e}")
+            return float('inf')  # 返回一个无限大的长度以指示失败
+
+    def can_remove_key(self, key, dict_name, current_dicts):
+        """
+        判断是否可以移除指定字典中的键
+        :param key: 要移除的键
+        :param dict_name: 字典的名称
+        :param current_dicts: 当前正在优化的字典
+        :return: (是否可以移除, 更新后的字典)
+        """
+        modified_dicts = {name: d.copy() for name, d in current_dicts.items()}
+        del modified_dicts[dict_name][key]
+
+        new_data_length = self.fetch_data(**modified_dicts)
+
+        if abs(new_data_length - self.initial_data_length) <= self.tolerance:
+            return True, modified_dicts[dict_name]
+        else:
+            return False, current_dicts[dict_name]
+
+    def optimize(self):
+        """
+        优化请求参数字典
+        :return: 优化后的字典
+        """
+        optimized_dicts = {name: d.copy() for name, d in self.dictionaries.items()}
+        non_removable_keys = {name: set() for name in self.dictionaries.keys()}
+
+        for dict_name, dictionary in list(optimized_dicts.items()):
+            for key in list(dictionary.keys()):
+                if key in non_removable_keys[dict_name]:
+                    continue
+
+                can_remove, updated_dict = self.can_remove_key(key, dict_name, optimized_dicts)
+
+                if can_remove:
+                    logging.info(f"{dict_name.capitalize()} '{key}' 可以被移除。")
+                    optimized_dicts[dict_name] = updated_dict
+                else:
+                    logging.info(f"{dict_name.capitalize()} '{key}' 不能被移除。")
+                    non_removable_keys[dict_name].add(key)
+
+        return optimized_dicts
+
+    def save_to_file(self, optimized_dicts, filename="optimized_params.json"):
+        """
+        将优化后的字典保存到文件
+        :param optimized_dicts: 优化后的字典
+        :param filename: 保存的文件名
+        """
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(optimized_dicts, f, ensure_ascii=False, indent=4)
+            logging.info(f"优化后的参数已保存到 {filename}")
+        except IOError as e:
+            logging.error(f"保存优化后的参数到文件失败: {e}")
+
+    def save_file(self):
+        optimized_dicts1 = self.optimize()
+        # 打印优化后的字典
+        logging.info("优化后的参数:")
+        for name, dictionary in optimized_dicts1.items():
+            sorted_dict = dict(sorted(dictionary.items()))
+            logging.info(f"{name.capitalize()}:")
+            logging.info(json.dumps(sorted_dict, ensure_ascii=False, indent=4))
+
+        # 保存优化后的字典到文件
+        self.save_to_file(optimized_dicts1, filename="optimized_params.json")
+
+    def main(self):
+        self.save_file()
