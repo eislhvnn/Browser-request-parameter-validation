@@ -17,7 +17,9 @@ cookies={}
 headers={}
 params={}
 url ='.com'
-optimizer = RequestOptimizer(url, tolerance=100, params=params, headers=headers, cookies=cookies)
+optimizer = RequestOptimizer(url,
+# method=1，2 ，1是GET,2是post，默认为1，需要添加到fetch_data模块修改
+tolerance=100, params=params, headers=headers, cookies=cookies)
 headersoptimizer.main()
 ```
 
