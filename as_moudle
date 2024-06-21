@@ -1,17 +1,19 @@
 import requests
 import json
 import logging
+from copy import deepcopy
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 class RequestOptimizer:
-    def __init__(self, url, tolerance=100, **kwargs):
+    def __init__(self, url, method=1, tolerance=100, **kwargs):
         """
         初始化 RequestOptimizer 对象
         :param url: 请求的 URL
         :param tolerance: 允许的误差区间
         :param kwargs: 其他字典参数
         """
+        self.method = method
         self.url = url
         self.tolerance = tolerance
         self.dictionaries = kwargs
@@ -23,9 +25,17 @@ class RequestOptimizer:
         :param kwargs: 请求的参数字典
         :return: 响应内容的长度
         """
+        # 请求的模式
         try:
-            response = requests.get(self.url, **kwargs)
+            if self.method == 1:
+                response = requests.get(self.url, **kwargs)
+            elif self.method == 2:
+                response = requests.post(self.url, **kwargs)
+            else:
+                raise ValueError(f"不支持的 HTTP 请求方法: {self.method}")
+
             response.raise_for_status()
+            self.len_re = len(response.content)
             return len(response.content)
         except requests.RequestException as e:
             logging.error(f"请求失败: {e}")
@@ -39,7 +49,7 @@ class RequestOptimizer:
         :param current_dicts: 当前正在优化的字典
         :return: (是否可以移除, 更新后的字典)
         """
-        modified_dicts = {name: d.copy() for name, d in current_dicts.items()}
+        modified_dicts = deepcopy(current_dicts)
         del modified_dicts[dict_name][key]
 
         new_data_length = self.fetch_data(**modified_dicts)
@@ -54,10 +64,14 @@ class RequestOptimizer:
         优化请求参数字典
         :return: 优化后的字典
         """
-        optimized_dicts = {name: d.copy() for name, d in self.dictionaries.items()}
+        optimized_dicts = deepcopy(self.dictionaries)
         non_removable_keys = {name: set() for name in self.dictionaries.keys()}
 
-        for dict_name, dictionary in list(optimized_dicts.items()):
+        for dict_name, dictionary in optimized_dicts.items():
+            if not isinstance(dictionary, dict):
+                logging.warning(f"{dict_name} 不是字典，跳过优化")
+                continue
+
             for key in list(dictionary.keys()):
                 if key in non_removable_keys[dict_name]:
                     continue
@@ -65,10 +79,10 @@ class RequestOptimizer:
                 can_remove, updated_dict = self.can_remove_key(key, dict_name, optimized_dicts)
 
                 if can_remove:
-                    logging.info(f"{dict_name.capitalize()} '{key}' 可以被移除。")
+                    logging.info(f"数据量为{self.len_re}, {dict_name.capitalize()} '{key}' 可以被移除。")
                     optimized_dicts[dict_name] = updated_dict
                 else:
-                    logging.info(f"{dict_name.capitalize()} '{key}' 不能被移除。")
+                    logging.info(f"数据量为{self.len_re}, {dict_name.capitalize()} '{key}' 不能被移除。")
                     non_removable_keys[dict_name].add(key)
 
         return optimized_dicts
@@ -91,9 +105,12 @@ class RequestOptimizer:
         # 打印优化后的字典
         logging.info("优化后的参数:")
         for name, dictionary in optimized_dicts1.items():
-            sorted_dict = dict(sorted(dictionary.items()))
-            logging.info(f"{name.capitalize()}:")
-            logging.info(json.dumps(sorted_dict, ensure_ascii=False, indent=4))
+            if isinstance(dictionary, dict):
+                sorted_dict = dict(sorted(dictionary.items()))
+                logging.info(f"{name.capitalize()}:")
+                logging.info(json.dumps(sorted_dict, ensure_ascii=False, indent=4))
+            else:
+                logging.info(f"{name.capitalize()}: {dictionary}")
 
         # 保存优化后的字典到文件
         self.save_to_file(optimized_dicts1, filename="optimized_params.json")
